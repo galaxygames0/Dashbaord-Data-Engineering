@@ -8,6 +8,8 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
+from plotly.subplots import make_subplots
+
 from sklearn.model_selection import train_test_split, cross_val_score, KFold
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -25,9 +27,32 @@ st.set_page_config(
 st.title("Vehicle Emissions, Demand, Revenue, and Scenario Dashboard")
 st.caption("Interactive dashboard for the final coursework modelling framework")
 
+PLOT_TEMPLATE = "plotly_white"
+
 # ============================================================
 # HELPERS
 # ============================================================
+
+def apply_clean_layout(fig, title):
+    fig.update_layout(
+        template=PLOT_TEMPLATE,
+        title=title,
+        title_x=0.02,
+        font=dict(size=14),
+        margin=dict(l=40, r=30, t=70, b=40),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(gridcolor="rgba(0,0,0,0.08)")
+    return fig
 
 @st.cache_data
 def load_data(uploaded_file):
@@ -301,13 +326,57 @@ def run_all_models(df: pd.DataFrame):
 
     return out
 
+# ============================================================
+# VISUAL FUNCTIONS
+# ============================================================
+
+def leaderboard_chart(results_df, metric, title):
+    plot_df = results_df.sort_values(metric, ascending=True).copy()
+    fig = px.bar(
+        plot_df,
+        x=metric,
+        y="Technique",
+        orientation="h",
+        text=metric
+    )
+    fig.update_traces(textposition="outside")
+    fig = apply_clean_layout(fig, title)
+    fig.update_yaxes(categoryorder="total ascending")
+    return fig
+
+def metric_bar_figure(results_df, metric, title):
+    fig = px.bar(
+        results_df,
+        x="Technique",
+        y=metric,
+        text=metric
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(xaxis_tickangle=-25)
+    fig = apply_clean_layout(fig, title)
+    return fig
+
+def model_metric_heatmap(results_df, title):
+    heat_df = results_df.set_index("Technique")[["Test RMSE", "Test MAE", "Test R²", "CV RMSE Mean"]]
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=heat_df.values,
+            x=heat_df.columns,
+            y=heat_df.index,
+            text=np.round(heat_df.values, 3),
+            texttemplate="%{text}",
+            colorscale="Blues"
+        )
+    )
+    fig = apply_clean_layout(fig, title)
+    return fig
+
 def actual_vs_pred_figure(y_true, y_pred, title, y_label):
     plot_df = pd.DataFrame({"Actual": y_true, "Predicted": y_pred})
     fig = px.scatter(
         plot_df,
         x="Actual",
         y="Predicted",
-        title=title,
         opacity=0.55
     )
     low = min(plot_df["Actual"].min(), plot_df["Predicted"].min())
@@ -320,10 +389,9 @@ def actual_vs_pred_figure(y_true, y_pred, title, y_label):
             name="Perfect fit"
         )
     )
-    fig.update_layout(
-        xaxis_title=f"Actual {y_label}",
-        yaxis_title=f"Predicted {y_label}"
-    )
+    fig = apply_clean_layout(fig, title)
+    fig.update_xaxes(title=f"Actual {y_label}")
+    fig.update_yaxes(title=f"Predicted {y_label}")
     return fig
 
 def residual_figure(y_true, y_pred, title):
@@ -333,20 +401,27 @@ def residual_figure(y_true, y_pred, title):
         plot_df,
         x="Predicted",
         y="Residual",
-        title=title,
         opacity=0.55
     )
     fig.add_hline(y=0)
+    fig = apply_clean_layout(fig, title)
+    fig.update_xaxes(title="Predicted")
+    fig.update_yaxes(title="Residual")
     return fig
 
-def metric_bar_figure(results_df, metric, title):
-    fig = px.bar(
-        results_df,
-        x="Technique",
-        y=metric,
-        title=title
+def residual_distribution_figure(y_true, y_pred, title):
+    residuals = y_true - y_pred
+    plot_df = pd.DataFrame({"Residual": residuals})
+    fig = px.histogram(
+        plot_df,
+        x="Residual",
+        nbins=40,
+        opacity=0.85
     )
-    fig.update_layout(xaxis_tickangle=-25)
+    fig.add_vline(x=0)
+    fig = apply_clean_layout(fig, title)
+    fig.update_xaxes(title="Residual")
+    fig.update_yaxes(title="Count")
     return fig
 
 def feature_importance_figure(best_pipeline, numeric_features, categorical_features, title):
@@ -368,9 +443,90 @@ def feature_importance_figure(best_pipeline, numeric_features, categorical_featu
         x="Importance",
         y="Feature",
         orientation="h",
-        title=title
+        text="Importance"
     )
+    fig.update_traces(texttemplate="%{text:.3f}", textposition="outside")
+    fig = apply_clean_layout(fig, title)
     return fig, importance_df
+
+def scenario_combo_chart(scenario_df):
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("Predicted CO2 by vehicle class", "Demand and revenue by vehicle class"),
+        specs=[[{"secondary_y": False}, {"secondary_y": True}]]
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=scenario_df["Vehicle Class"],
+            y=scenario_df["Predicted CO2 per Vehicle"],
+            name="Predicted CO2"
+        ),
+        row=1, col=1
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=scenario_df["Vehicle Class"],
+            y=scenario_df["Predicted Demand"],
+            name="Predicted Demand"
+        ),
+        row=1, col=2, secondary_y=False
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=scenario_df["Vehicle Class"],
+            y=scenario_df["Predicted Revenue"],
+            mode="lines+markers",
+            name="Predicted Revenue"
+        ),
+        row=1, col=2, secondary_y=True
+    )
+
+    fig.update_layout(
+        template=PLOT_TEMPLATE,
+        title="Scenario simulator outputs by vehicle class",
+        title_x=0.02,
+        margin=dict(l=40, r=40, t=80, b=40),
+        legend=dict(orientation="h", y=1.08, x=1, xanchor="right")
+    )
+
+    fig.update_yaxes(title_text="CO2 per vehicle", row=1, col=1)
+    fig.update_yaxes(title_text="Demand", row=1, col=2, secondary_y=False)
+    fig.update_yaxes(title_text="Revenue", row=1, col=2, secondary_y=True)
+    return fig
+
+def weighted_emissions_chart(scenario_df):
+    plot_df = scenario_df.copy()
+    plot_df["Weighted Emissions Contribution"] = (
+        plot_df["Production Share"] * plot_df["Predicted CO2 per Vehicle"]
+    )
+    fig = px.bar(
+        plot_df,
+        x="Vehicle Class",
+        y="Weighted Emissions Contribution",
+        text="Weighted Emissions Contribution"
+    )
+    fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+    fig = apply_clean_layout(fig, "Fleet weighted emissions contribution by vehicle class")
+    return fig
+
+def scenario_simple_bar_chart(scenario_df, y_col, title):
+    fig = px.bar(
+        scenario_df,
+        x="Vehicle Class",
+        y=y_col,
+        text=y_col
+    )
+    fig.update_traces(textposition="outside")
+    fig = apply_clean_layout(fig, title)
+    return fig
+
+# ============================================================
+# SCENARIO
+# ============================================================
 
 def run_scenario(df, best_emissions_model, best_demand_model, best_revenue_model, feature_cols, scenario_mix):
     scenario_rows = []
@@ -444,11 +600,8 @@ try:
     raw_df = load_data(uploaded_file)
     df = prepare_dataframe(raw_df)
     df = add_proxy_targets(df)
-
     model_outputs = run_all_models(df)
-
     st.success("Data loaded and models trained successfully.")
-
 except Exception as e:
     st.error(str(e))
     st.stop()
@@ -487,6 +640,16 @@ with tab2:
     results_df = model_outputs["emissions"]["results_df"]
     st.dataframe(results_df, use_container_width=True)
 
+    st.plotly_chart(
+        leaderboard_chart(results_df, "Test RMSE", "Emissions model leaderboard by RMSE"),
+        use_container_width=True
+    )
+
+    st.plotly_chart(
+        model_metric_heatmap(results_df, "Emissions model metric heatmap"),
+        use_container_width=True
+    )
+
     col1, col2 = st.columns(2)
     with col1:
         st.plotly_chart(
@@ -512,9 +675,14 @@ with tab2:
         )
     with col4:
         st.plotly_chart(
-            residual_figure(y_test, y_pred, "Emissions, residual plot"),
+            residual_figure(y_test, y_pred, "Emissions, residual vs predicted"),
             use_container_width=True
         )
+
+    st.plotly_chart(
+        residual_distribution_figure(y_test, y_pred, "Emissions, residual distribution"),
+        use_container_width=True
+    )
 
     fig, importance_df = feature_importance_figure(
         best_model,
@@ -530,6 +698,16 @@ with tab3:
     st.subheader("Demand model comparison")
     results_df = model_outputs["demand"]["results_df"]
     st.dataframe(results_df, use_container_width=True)
+
+    st.plotly_chart(
+        leaderboard_chart(results_df, "Test RMSE", "Demand model leaderboard by RMSE"),
+        use_container_width=True
+    )
+
+    st.plotly_chart(
+        model_metric_heatmap(results_df, "Demand model metric heatmap"),
+        use_container_width=True
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -556,9 +734,14 @@ with tab3:
         )
     with col4:
         st.plotly_chart(
-            residual_figure(y_test, y_pred, "Demand, residual plot"),
+            residual_figure(y_test, y_pred, "Demand, residual vs predicted"),
             use_container_width=True
         )
+
+    st.plotly_chart(
+        residual_distribution_figure(y_test, y_pred, "Demand, residual distribution"),
+        use_container_width=True
+    )
 
     fig, importance_df = feature_importance_figure(
         best_model,
@@ -574,6 +757,16 @@ with tab4:
     st.subheader("Revenue model comparison")
     results_df = model_outputs["revenue"]["results_df"]
     st.dataframe(results_df, use_container_width=True)
+
+    st.plotly_chart(
+        leaderboard_chart(results_df, "Test RMSE", "Revenue model leaderboard by RMSE"),
+        use_container_width=True
+    )
+
+    st.plotly_chart(
+        model_metric_heatmap(results_df, "Revenue model metric heatmap"),
+        use_container_width=True
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -600,9 +793,14 @@ with tab4:
         )
     with col4:
         st.plotly_chart(
-            residual_figure(y_test, y_pred, "Revenue, residual plot"),
+            residual_figure(y_test, y_pred, "Revenue, residual vs predicted"),
             use_container_width=True
         )
+
+    st.plotly_chart(
+        residual_distribution_figure(y_test, y_pred, "Revenue, residual distribution"),
+        use_container_width=True
+    )
 
     fig, importance_df = feature_importance_figure(
         best_model,
@@ -645,33 +843,44 @@ with tab5:
 
         st.dataframe(scenario_df, use_container_width=True)
 
+        st.plotly_chart(
+            scenario_combo_chart(scenario_df),
+            use_container_width=True
+        )
+
         col1, col2, col3 = st.columns(3)
         with col1:
-            fig = px.bar(
-                scenario_df,
-                x="Vehicle Class",
-                y="Predicted CO2 per Vehicle",
-                title="Predicted emissions by vehicle class"
+            st.plotly_chart(
+                scenario_simple_bar_chart(
+                    scenario_df,
+                    "Predicted CO2 per Vehicle",
+                    "Predicted emissions by vehicle class"
+                ),
+                use_container_width=True
             )
-            st.plotly_chart(fig, use_container_width=True)
-
         with col2:
-            fig = px.bar(
-                scenario_df,
-                x="Vehicle Class",
-                y="Predicted Demand",
-                title="Predicted demand by vehicle class"
+            st.plotly_chart(
+                scenario_simple_bar_chart(
+                    scenario_df,
+                    "Predicted Demand",
+                    "Predicted demand by vehicle class"
+                ),
+                use_container_width=True
             )
-            st.plotly_chart(fig, use_container_width=True)
-
         with col3:
-            fig = px.bar(
-                scenario_df,
-                x="Vehicle Class",
-                y="Predicted Revenue",
-                title="Predicted revenue by vehicle class"
+            st.plotly_chart(
+                scenario_simple_bar_chart(
+                    scenario_df,
+                    "Predicted Revenue",
+                    "Predicted revenue by vehicle class"
+                ),
+                use_container_width=True
             )
-            st.plotly_chart(fig, use_container_width=True)
+
+        st.plotly_chart(
+            weighted_emissions_chart(scenario_df),
+            use_container_width=True
+        )
 
         csv = scenario_df.to_csv(index=False).encode("utf-8")
         st.download_button(
