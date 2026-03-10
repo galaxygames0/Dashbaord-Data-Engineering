@@ -24,10 +24,50 @@ st.set_page_config(
     layout="wide"
 )
 
+# ============================================================
+# THEME-AWARE STYLING
+# ============================================================
+
+THEME_BASE = st.get_option("theme.base") or "light"
+IS_DARK = THEME_BASE == "dark"
+
+FONT_COLOR = "#F9FAFB" if IS_DARK else "#111827"
+SUBTLE_TEXT = "#D1D5DB" if IS_DARK else "#6B7280"
+PAPER_BG = "rgba(0,0,0,0)"
+PLOT_BG = "rgba(255,255,255,0.03)" if IS_DARK else "#FFFFFF"
+GRID_COLOR = "rgba(255,255,255,0.12)" if IS_DARK else "rgba(0,0,0,0.08)"
+AXIS_COLOR = "#E5E7EB" if IS_DARK else "#374151"
+PLOT_TEMPLATE = "plotly_dark" if IS_DARK else "plotly_white"
+COLORWAY = ["#60A5FA", "#34D399", "#FBBF24", "#F87171", "#A78BFA", "#22D3EE"]
+
+st.markdown(
+    f"""
+    <style>
+    html, body, [class*="css"] {{
+        color: {FONT_COLOR};
+    }}
+    h1, h2, h3, h4 {{
+        color: {FONT_COLOR};
+    }}
+    div[data-testid="stMetricValue"] {{
+        color: {FONT_COLOR};
+    }}
+    div[data-testid="stMetricLabel"] {{
+        color: {SUBTLE_TEXT};
+    }}
+    div[data-testid="stCaptionContainer"] {{
+        color: {SUBTLE_TEXT};
+    }}
+    .stDataFrame, .stTable {{
+        color: {FONT_COLOR};
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("Vehicle Emissions, Demand, Revenue, and Scenario Dashboard")
 st.caption("Interactive dashboard for the final coursework modelling framework")
-
-PLOT_TEMPLATE = "plotly_white"
 
 # ============================================================
 # HELPERS
@@ -38,20 +78,37 @@ def apply_clean_layout(fig, title):
         template=PLOT_TEMPLATE,
         title=title,
         title_x=0.02,
-        font=dict(size=14),
+        font=dict(size=14, color=FONT_COLOR),
+        title_font=dict(size=22, color=FONT_COLOR),
         margin=dict(l=40, r=30, t=70, b=40),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
+        plot_bgcolor=PLOT_BG,
+        paper_bgcolor=PAPER_BG,
+        colorway=COLORWAY,
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=1.02,
             xanchor="right",
-            x=1
-        )
+            x=1,
+            font=dict(color=FONT_COLOR)
+        ),
+        hoverlabel=dict(font_color=FONT_COLOR)
     )
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(gridcolor="rgba(0,0,0,0.08)")
+    fig.update_xaxes(
+        showgrid=False,
+        color=AXIS_COLOR,
+        linecolor=AXIS_COLOR,
+        tickfont=dict(color=FONT_COLOR),
+        title_font=dict(color=FONT_COLOR)
+    )
+    fig.update_yaxes(
+        gridcolor=GRID_COLOR,
+        color=AXIS_COLOR,
+        linecolor=AXIS_COLOR,
+        tickfont=dict(color=FONT_COLOR),
+        title_font=dict(color=FONT_COLOR),
+        zerolinecolor=GRID_COLOR
+    )
     return fig
 
 @st.cache_data
@@ -304,6 +361,7 @@ def run_all_models(df: pd.DataFrame):
         sample_df["Actual"] = y_test.reset_index(drop=True)
         sample_df["Predicted"] = pd.Series(best_model.predict(X_test))
         sample_df["Residual"] = sample_df["Actual"] - sample_df["Predicted"]
+        sample_df["Sample Index"] = np.arange(1, len(sample_df) + 1)
 
         return {
             "results_df": results_df,
@@ -365,9 +423,11 @@ def model_metric_heatmap(results_df, title):
             y=heat_df.index,
             text=np.round(heat_df.values, 3),
             texttemplate="%{text}",
-            colorscale="Blues"
+            colorscale="Blues",
+            showscale=True
         )
     )
+    fig.update_traces(textfont={"color": "#111827"})
     fig = apply_clean_layout(fig, title)
     return fig
 
@@ -490,12 +550,16 @@ def scenario_combo_chart(scenario_df):
         title="Scenario simulator outputs by vehicle class",
         title_x=0.02,
         margin=dict(l=40, r=40, t=80, b=40),
-        legend=dict(orientation="h", y=1.08, x=1, xanchor="right")
+        legend=dict(orientation="h", y=1.08, x=1, xanchor="right", font=dict(color=FONT_COLOR)),
+        plot_bgcolor=PLOT_BG,
+        paper_bgcolor=PAPER_BG,
+        font=dict(color=FONT_COLOR)
     )
 
-    fig.update_yaxes(title_text="CO2 per vehicle", row=1, col=1)
-    fig.update_yaxes(title_text="Demand", row=1, col=2, secondary_y=False)
-    fig.update_yaxes(title_text="Revenue", row=1, col=2, secondary_y=True)
+    fig.update_yaxes(title_text="CO2 per vehicle", row=1, col=1, color=AXIS_COLOR)
+    fig.update_yaxes(title_text="Demand", row=1, col=2, secondary_y=False, color=AXIS_COLOR)
+    fig.update_yaxes(title_text="Revenue", row=1, col=2, secondary_y=True, color=AXIS_COLOR)
+    fig.update_xaxes(color=AXIS_COLOR)
     return fig
 
 def weighted_emissions_chart(scenario_df):
@@ -522,6 +586,32 @@ def scenario_simple_bar_chart(scenario_df, y_col, title):
     )
     fig.update_traces(textposition="outside")
     fig = apply_clean_layout(fig, title)
+    return fig
+
+def sample_predictions_figure(sample_df, title):
+    plot_df = sample_df.head(20).copy()
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["Sample Index"],
+            y=plot_df["Actual"],
+            mode="lines+markers",
+            name="Actual"
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["Sample Index"],
+            y=plot_df["Predicted"],
+            mode="lines+markers",
+            name="Predicted"
+        )
+    )
+
+    fig = apply_clean_layout(fig, title)
+    fig.update_xaxes(title="Sample index")
+    fig.update_yaxes(title="Value")
     return fig
 
 # ============================================================
@@ -569,6 +659,16 @@ def run_scenario(df, best_emissions_model, best_demand_model, best_revenue_model
     }
 
     return scenario_df, summary
+
+def get_baseline_mix(df):
+    classes = ["COMPACT", "MID-SIZE", "SUV - SMALL", "SUBCOMPACT", "SUV - STANDARD", "TWO-SEATER"]
+    observed = df["Vehicle Class"].value_counts(normalize=True)
+    baseline_mix = {cls: float(observed.get(cls, 0.0)) for cls in classes}
+
+    total = sum(baseline_mix.values())
+    if total > 0:
+        baseline_mix = {k: v / total for k, v in baseline_mix.items()}
+    return baseline_mix
 
 # ============================================================
 # SIDEBAR
@@ -836,10 +936,36 @@ with tab5:
             scenario_mix
         )
 
+        baseline_mix = get_baseline_mix(df)
+        baseline_df, baseline_summary = run_scenario(
+            df,
+            model_outputs["emissions"]["best_model"],
+            model_outputs["demand"]["best_model"],
+            model_outputs["revenue"]["best_model"],
+            model_outputs["feature_cols"],
+            baseline_mix
+        )
+
+        delta_co2 = summary["Fleet average CO2"] - baseline_summary["Fleet average CO2"]
+        delta_demand = summary["Fleet weighted demand"] - baseline_summary["Fleet weighted demand"]
+        delta_revenue = summary["Fleet weighted revenue"] - baseline_summary["Fleet weighted revenue"]
+
         c1, c2, c3 = st.columns(3)
-        c1.metric("Fleet average CO2", f"{summary['Fleet average CO2']:.2f} g/km")
-        c2.metric("Fleet weighted demand", f"{summary['Fleet weighted demand']:.0f}")
-        c3.metric("Fleet weighted revenue", f"£{summary['Fleet weighted revenue']:,.2f}")
+        c1.metric(
+            "Fleet average CO2",
+            f"{summary['Fleet average CO2']:.2f} g/km",
+            delta=f"{delta_co2:+.2f} g/km"
+        )
+        c2.metric(
+            "Fleet weighted demand",
+            f"{summary['Fleet weighted demand']:.0f}",
+            delta=f"{delta_demand:+.0f}"
+        )
+        c3.metric(
+            "Fleet weighted revenue",
+            f"£{summary['Fleet weighted revenue']:,.2f}",
+            delta=f"£{delta_revenue:,.2f}"
+        )
 
         st.dataframe(scenario_df, use_container_width=True)
 
@@ -895,10 +1021,31 @@ with tab6:
     subtab1, subtab2, subtab3 = st.tabs(["Emissions", "Demand", "Revenue"])
 
     with subtab1:
+        st.plotly_chart(
+            sample_predictions_figure(
+                model_outputs["emissions"]["sample_df"],
+                "Emissions sample predictions, actual vs predicted"
+            ),
+            use_container_width=True
+        )
         st.dataframe(model_outputs["emissions"]["sample_df"].head(20), use_container_width=True)
 
     with subtab2:
+        st.plotly_chart(
+            sample_predictions_figure(
+                model_outputs["demand"]["sample_df"],
+                "Demand sample predictions, actual vs predicted"
+            ),
+            use_container_width=True
+        )
         st.dataframe(model_outputs["demand"]["sample_df"].head(20), use_container_width=True)
 
     with subtab3:
+        st.plotly_chart(
+            sample_predictions_figure(
+                model_outputs["revenue"]["sample_df"],
+                "Revenue sample predictions, actual vs predicted"
+            ),
+            use_container_width=True
+        )
         st.dataframe(model_outputs["revenue"]["sample_df"].head(20), use_container_width=True)
